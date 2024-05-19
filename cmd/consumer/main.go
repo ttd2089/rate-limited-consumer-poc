@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/signal"
 	"time"
+
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 )
 
 func main() {
@@ -14,7 +16,18 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	consumer := newConsumer()
+	consumer, err := newConsumer()
+	if err != nil {
+		fmt.Printf("fatal: %v\n", err)
+		os.Exit(1)
+		return
+	}
+	defer func() {
+		if err := consumer.Close(); err != nil {
+			fmt.Printf("error: close consumer: %v\n", err)
+		}
+	}()
+
 	handler := newHandler()
 
 	for !isCancelled(ctx) {
@@ -30,53 +43,80 @@ func main() {
 			os.Exit(1)
 			return
 		}
+
+		if err := consumer.Commit(ctx); err != nil {
+			fmt.Printf("fatal: commit: %v\n", err)
+			return
+		}
 	}
 }
 
 type message struct {
-	customerID string
-	type_      string
-	body       string
+	CustomerID string `json:"customer_id"`
+	Type       string `json:"type"`
+	Body       string `json:"body"`
 }
 
-type consumer interface {
-	Consume(context.Context) (message, error)
+type kafkaConsumer struct {
+	kc *kafka.Consumer
 }
 
-type randomConsumer struct {
-	customerIDs []string
-	types       []string
+func (kc kafkaConsumer) Close() error {
+	return kc.kc.Close()
 }
 
-func (r randomConsumer) Consume(_ context.Context) (message, error) {
-	customerID := chooseRandom(r.customerIDs)
-	type_ := chooseRandom(r.types)
-	body := fmt.Sprintf("customer %q got a %q message at %v", customerID, type_, time.Now())
-	return message{
-		customerID: customerID,
-		type_:      type_,
-		body:       body,
-	}, nil
-}
-
-func chooseRandom[T any](arr []T) T {
-	return arr[rand.Int()%len(arr)]
-}
-
-func newConsumer() consumer {
-	return randomConsumer{
-		customerIDs: []string{
-			"faa108f9-0815-4035-89c4-403b4f2f7948",
-			"e62358f4-47bb-4a45-9db3-a1c5ad6cdab2",
-			"139b70a3-60e8-47a0-9b7d-d8a369d18417",
-			"432556b3-0a3b-4dbb-83fc-187115228f67",
-		},
-		types: []string{
-			"foo",
-			"bar",
-			"baz",
-		},
+func (kc kafkaConsumer) Consume(ctx context.Context) (message, error) {
+	for !isCancelled(ctx) {
+		event := kc.kc.Poll(50)
+		switch event := event.(type) {
+		case *kafka.Message:
+			msg := message{}
+			if err := json.Unmarshal(event.Value, &msg); err != nil {
+				fmt.Printf("error: consume: %v\n", err)
+				continue
+			}
+			return msg, nil
+		case kafka.PartitionEOF:
+			<-time.After(time.Second)
+		case kafka.Error:
+			fmt.Printf("error: consume: %v\n", event.Error())
+		}
 	}
+
+	return message{}, ctx.Err()
+}
+
+func (kc kafkaConsumer) Commit(_ context.Context) error {
+	_, err := kc.kc.Commit()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func newConsumer() (kafkaConsumer, error) {
+
+	kc, err := kafka.NewConsumer(&kafka.ConfigMap{
+		"bootstrap.servers":  "kafka:29092",
+		"group.id":           "consumer",
+		"auto.offset.reset":  "latest",
+		"enable.auto.commit": "false",
+	})
+	if err != nil {
+		return kafkaConsumer{}, fmt.Errorf("create Kafka consumer: %w", err)
+	}
+
+	err = kc.Subscribe("messages", func(c *kafka.Consumer, e kafka.Event) error {
+		fmt.Printf("rebalance: %v\n", e)
+		return nil
+	})
+	if err != nil {
+		return kafkaConsumer{}, fmt.Errorf("subscribe: %w", err)
+	}
+
+	return kafkaConsumer{
+		kc: kc,
+	}, nil
 }
 
 type handler interface {
@@ -90,7 +130,7 @@ func newHandler() handler {
 type consoleHandler struct{}
 
 func (c consoleHandler) Handle(_ context.Context, msg message) error {
-	fmt.Printf("message: customer_id=%q type=%q body=%q\n", msg.customerID, msg.type_, msg.body)
+	fmt.Printf("message: customer_id=%q type=%q body=%q\n", msg.CustomerID, msg.Type, msg.Body)
 	return nil
 }
 
