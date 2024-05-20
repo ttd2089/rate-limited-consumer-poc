@@ -22,6 +22,7 @@ func main() {
 		os.Exit(1)
 		return
 	}
+
 	defer func() {
 		if err := consumer.Close(); err != nil {
 			fmt.Printf("error: close consumer: %v\n", err)
