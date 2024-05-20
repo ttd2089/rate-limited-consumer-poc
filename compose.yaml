@@ -13,6 +13,13 @@ services:
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
       - CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk
+  producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    environment:
+      - KAFKA__CONSUMER__BOOTSTRAP_SERVERS=kafka:29092
+      - KAFKA__CONSUMER__TOPIC=messages
   consumer:
     build:
       context: .
