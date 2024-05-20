@@ -17,3 +17,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.consumer
+    environment:
+      - KAFKA__CONSUMER__BOOTSTRAP_SERVERS=kafka:29092
+      - KAFKA__CONSUMER__GROUP_ID=consumer
+      - KAFKA__CONSUMER__TOPIC=messages

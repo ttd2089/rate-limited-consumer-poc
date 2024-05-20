@@ -64,7 +64,7 @@ func TestParse(t *testing.T) {
 			Float32: 1.618,
 			Float64: 0.5772156649,
 		}
-		config := map[string]string{
+		config := StdMap(map[string]string{
 			"string":  expected.String,
 			"bool":    strconv.FormatBool(expected.Bool),
 			"int":     strconv.Itoa(expected.Int),
@@ -79,7 +79,7 @@ func TestParse(t *testing.T) {
 			"uint64":  strconv.FormatUint(expected.Uint64, 10),
 			"float32": strconv.FormatFloat(float64(expected.Float32), 'f', -1, 32),
 			"float64": strconv.FormatFloat(expected.Float64, 'f', -1, 64),
-		}
+		})
 
 		t.Run("on struct", func(t *testing.T) {
 			actual, err := Parse[target](config)

@@ -7,9 +7,6 @@ import (
 	"strconv"
 )
 
-// Map is a map containing configuration values.
-type Map map[string]string
-
 // Parse reads the config
 func Parse[T any](configMap Map) (T, error) {
 	var target T
@@ -31,7 +28,7 @@ func Parse[T any](configMap Map) (T, error) {
 	}
 }
 
-func ParseInto(configMap map[string]string, target any) error {
+func ParseInto(configMap Map, target any) error {
 	targetType := reflect.TypeOf(target)
 	if targetType.Kind() != reflect.Pointer {
 		return fmt.Errorf("unsupported target type \"%qT\"", target)
@@ -58,7 +55,7 @@ func ParseInto(configMap map[string]string, target any) error {
 			continue
 		}
 		configKey := tag
-		configVal, ok := configMap[tag]
+		configVal, ok := configMap.Lookup(tag)
 		if !ok {
 			continue
 		}

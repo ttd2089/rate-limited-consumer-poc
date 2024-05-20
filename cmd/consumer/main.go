@@ -9,20 +9,38 @@ import (
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+
+	"github.com/ttd2089/rate-limited-consumer-poc/internal/config"
+	"github.com/ttd2089/rate-limited-consumer-poc/internal/messages"
 )
 
+type appConfig struct {
+	BootstrapServers string `config_key:"kafka.consumer.bootstrap-servers"`
+	ConsumerGroupID  string `config_key:"kafka.consumer.group-id"`
+	ConsumeTopic     string `config_key:"kafka.consumer.topic"`
+}
+
 func main() {
+	if err := run(); err != nil {
+		fmt.Printf("fatal: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	consumer, err := newConsumer()
+	cfg, err := config.Parse[appConfig](config.EnvMap{})
 	if err != nil {
-		fmt.Printf("fatal: %v\n", err)
-		os.Exit(1)
-		return
+		return fmt.Errorf("parse app config: %v", err)
 	}
 
+	consumer, err := buildConsumer(cfg)
+	if err != nil {
+		return fmt.Errorf("build Kafka consumer: %v", err)
+	}
 	defer func() {
 		if err := consumer.Close(); err != nil {
 			fmt.Printf("error: close consumer: %v\n", err)
@@ -40,22 +58,15 @@ func main() {
 		}
 
 		if err := handler.Handle(ctx, msg); err != nil {
-			fmt.Printf("fatal: handle msg: %v", err)
-			os.Exit(1)
-			return
+			return fmt.Errorf("handle msg: %v", err)
 		}
 
 		if err := consumer.Commit(ctx); err != nil {
-			fmt.Printf("fatal: commit: %v\n", err)
-			return
+			return fmt.Errorf("commit: %v\n", err)
 		}
 	}
-}
 
-type message struct {
-	CustomerID string `json:"customer_id"`
-	Type       string `json:"type"`
-	Body       string `json:"body"`
+	return nil
 }
 
 type kafkaConsumer struct {
@@ -66,12 +77,12 @@ func (kc kafkaConsumer) Close() error {
 	return kc.kc.Close()
 }
 
-func (kc kafkaConsumer) Consume(ctx context.Context) (message, error) {
+func (kc kafkaConsumer) Consume(ctx context.Context) (messages.Message, error) {
 	for !isCancelled(ctx) {
 		event := kc.kc.Poll(50)
 		switch event := event.(type) {
 		case *kafka.Message:
-			msg := message{}
+			msg := messages.Message{}
 			if err := json.Unmarshal(event.Value, &msg); err != nil {
 				fmt.Printf("error: consume: %v\n", err)
 				continue
@@ -84,7 +95,7 @@ func (kc kafkaConsumer) Consume(ctx context.Context) (message, error) {
 		}
 	}
 
-	return message{}, ctx.Err()
+	return messages.Message{}, ctx.Err()
 }
 
 func (kc kafkaConsumer) Commit(_ context.Context) error {
@@ -95,11 +106,11 @@ func (kc kafkaConsumer) Commit(_ context.Context) error {
 	return nil
 }
 
-func newConsumer() (kafkaConsumer, error) {
+func buildConsumer(cfg appConfig) (kafkaConsumer, error) {
 
 	kc, err := kafka.NewConsumer(&kafka.ConfigMap{
-		"bootstrap.servers":  "kafka:29092",
-		"group.id":           "consumer",
+		"bootstrap.servers":  cfg.BootstrapServers,
+		"group.id":           cfg.ConsumerGroupID,
 		"auto.offset.reset":  "latest",
 		"enable.auto.commit": "false",
 	})
@@ -121,7 +132,7 @@ func newConsumer() (kafkaConsumer, error) {
 }
 
 type handler interface {
-	Handle(context.Context, message) error
+	Handle(context.Context, messages.Message) error
 }
 
 func newHandler() handler {
@@ -130,7 +141,7 @@ func newHandler() handler {
 
 type consoleHandler struct{}
 
-func (c consoleHandler) Handle(_ context.Context, msg message) error {
+func (c consoleHandler) Handle(_ context.Context, msg messages.Message) error {
 	fmt.Printf("message: customer_id=%q type=%q body=%q\n", msg.CustomerID, msg.Type, msg.Body)
 	return nil
 }
