@@ -5,6 +5,7 @@ go 1.22.1
 require (
 	github.com/confluentinc/confluent-kafka-go/v2 v2.4.0
 	github.com/stretchr/testify v1.9.0
+	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
 )
 
 require (

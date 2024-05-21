@@ -14,6 +14,7 @@ import (
 
 	"github.com/ttd2089/rate-limited-consumer-poc/internal/config"
 	"github.com/ttd2089/rate-limited-consumer-poc/internal/messages"
+	"github.com/ttd2089/rate-limited-consumer-poc/internal/ringbuf"
 )
 
 type appConfig struct {
@@ -62,10 +63,8 @@ func run() error {
 			"baz",
 		}
 
-		const maxRPS = 100
-
-		sends := make([]time.Time, 0, maxRPS)
-		sendsPointer := 0
+		const maxRPS = 1000
+		sends := ringbuf.New[time.Time](maxRPS)
 
 		for !isCancelled(ctx) {
 
@@ -89,8 +88,8 @@ func run() error {
 
 			timestamp := time.Now()
 
-			if len(sends) == maxRPS {
-				anchor := sends[sendsPointer]
+			if sends.Len() == maxRPS {
+				anchor, _ := sends.Get(0)
 				nextAllowedSend := anchor.Add(time.Second)
 				delay := nextAllowedSend.Sub(timestamp)
 				if delay > 0 {
@@ -111,12 +110,7 @@ func run() error {
 				continue
 			}
 
-			if len(sends) == maxRPS {
-				sends[sendsPointer] = timestamp
-			} else {
-				sends = append(sends, timestamp)
-			}
-			sendsPointer = (sendsPointer + 1) % maxRPS
+			sends.Push(timestamp)
 		}
 	}()
 

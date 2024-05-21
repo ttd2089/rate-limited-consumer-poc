@@ -12,9 +12,12 @@ import (
 
 	"github.com/ttd2089/rate-limited-consumer-poc/internal/config"
 	"github.com/ttd2089/rate-limited-consumer-poc/internal/messages"
+	"github.com/ttd2089/rate-limited-consumer-poc/internal/metrics"
 )
 
 type appConfig struct {
+	HTTPPort         string `config_key:"http.listen-port"`
+	HTTPWWWDir       string `config_key:"http.www-dir"`
 	BootstrapServers string `config_key:"kafka.consumer.bootstrap-servers"`
 	ConsumerGroupID  string `config_key:"kafka.consumer.group-id"`
 	ConsumeTopic     string `config_key:"kafka.consumer.topic"`
@@ -37,6 +40,21 @@ func run() error {
 		return fmt.Errorf("parse app config: %v", err)
 	}
 
+	stats := metrics.NewCount(5 * 60)
+
+	statsServer, err := newStatsServer(
+		fmt.Sprintf(":%s", cfg.HTTPPort),
+		stats,
+		cfg.HTTPWWWDir)
+	if err != nil {
+		return fmt.Errorf("serve stats page: %w", err)
+	}
+	defer func() {
+		if err := statsServer.Shutdown(ctx); err != nil {
+			fmt.Printf("error: shutdown stats server: %v", err)
+		}
+	}()
+
 	consumer, err := buildConsumer(cfg)
 	if err != nil {
 		return fmt.Errorf("build Kafka consumer: %v", err)
@@ -47,7 +65,7 @@ func run() error {
 		}
 	}()
 
-	handler := newHandler()
+	handler := newHandler(stats)
 
 	for !isCancelled(ctx) {
 		msg, err := consumer.Consume(ctx)
@@ -131,18 +149,19 @@ func buildConsumer(cfg appConfig) (kafkaConsumer, error) {
 	}, nil
 }
 
-type handler interface {
-	Handle(context.Context, messages.Message) error
+func newHandler(stats *metrics.Count) handler {
+	return handler{
+		stats: stats,
+	}
 }
 
-func newHandler() handler {
-	return consoleHandler{}
+type handler struct {
+	stats *metrics.Count
 }
 
-type consoleHandler struct{}
-
-func (c consoleHandler) Handle(_ context.Context, msg messages.Message) error {
-	fmt.Printf("message: customer_id=%q type=%q body=%q\n", msg.CustomerID, msg.Type, msg.Body)
+func (c handler) Handle(_ context.Context, msg messages.Message) error {
+	c.stats.Record(fmt.Sprintf("%s:%s", msg.CustomerID, msg.Type), 1)
+	// fmt.Printf("message: customer_id=%q type=%q body=%q\n", msg.CustomerID, msg.Type, msg.Body)
 	return nil
 }
 

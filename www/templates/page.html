@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="description" contents="Stats about the messages that have been consumed">
+	<title>Consumer Stats</title>
+	<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+	<header>
+		<section class="content">
+			<h1>Consumer Stats</h1>
+		</section>
+	</header>
+	<section class="content dashboard">
+		{{ range $key, $value := . }}
+		<figure class="panel">
+			<svg viewBox="0 0 300 100" class="chart">
+                <line x1="0" y1="100" x2="300" y2="100" stroke="#aa0" stroke-width="1"/>
+                <line x1="0" y1="100" x2="0" y2="0" stroke="#aa0" stroke-width="1"/>
+				<polyline fill="none" stroke="#07d" stroke-width="1" points="{{$value.Points}}"/>
+			</svg>
+			<figcaption>{{$key}}</figcaption>
+		</figure>
+		{{ end }}
+	</section>
+</body>
+</html>
